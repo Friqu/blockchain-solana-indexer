@@ -1,0 +1,93 @@
+version: '3.8'
+services:
+    mongo-primary:
+        image: mongo:5
+        restart: always
+        env_file:
+            - .env
+        networks:
+            - backend-interview-network
+        command: ["--replSet", "my-replica-set", "--bind_ip_all", "--port", "27017"]
+        volumes:
+            - ./mongo-data/mongo-primary:/mongo-data/db
+        ports:
+            - "27017:27017"
+        healthcheck:
+            test: test $$(echo "rs.initiate({_id:'my-replica-set',members:[{_id:0,host:\"mongo-primary:27017\"},{_id:1,host:\"mongo-replica:27018\"},{_id:2,host:\"mongo-second-replica:27019\"}]}).ok || rs.status().ok" | mongo --port 27017 --quiet) -eq 1
+            interval: 10s
+            start_period: 30s
+        logging:
+            driver: none
+
+    mongo-replica:
+        image: mongo:5
+        restart: always
+        env_file:
+            - .env
+        networks:
+            - backend-interview-network
+        command: ["--replSet", "my-replica-set", "--bind_ip_all", "--port", "27018"]
+        volumes:
+            - ./mongo-data/mongo-replica:/mongo-data/db
+        ports:
+            - "27018:27018"
+        logging:
+            driver: none
+
+    mongo-second-replica:
+        image: mongo:5
+        restart: always
+        env_file:
+            - .env
+        networks:
+            - backend-interview-network
+        command: ["--replSet", "my-replica-set", "--bind_ip_all", "--port", "27019"]
+        volumes:
+            - ./mongo-data/mongo-second-replica:/mongo-data/db
+        ports:
+            - "27019:27019"
+        logging:
+            driver: none
+
+    backend-service:
+        build:
+            dockerfile: Dockerfile
+            context: .
+            target: development
+        volumes:
+          - ./node_modules:/usr/src/node_modules
+          - ./src:/usr/src/app/src
+          - ./test:/usr/src/app/test
+        command: pnpm start:dev
+        env_file:
+            - .env
+        environment:
+            - NODE_ENV=local
+        ports:
+            - "3000:3000"
+            - "9229:9229"
+        restart: always
+        networks:
+            - backend-interview-network
+        depends_on:
+            - mongo-primary
+            - mongo-replica
+            - mongo-second-replica
+    redis:
+        image: redis:7.0.7
+        ports:
+            - 6379:6379
+        networks:
+            - backend-interview-network
+    redis-commander:
+        hostname: redis-commander
+        image: ghcr.io/joeferner/redis-commander:latest
+        environment:
+            - REDIS_HOSTS=local:redis:6379
+        ports:
+            - "8081:8081"
+        networks:
+            - backend-interview-network
+networks:
+    backend-interview-network:
+        driver: bridge
